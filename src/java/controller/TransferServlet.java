@@ -32,7 +32,12 @@ public class TransferServlet extends HttpServlet {
         String amountStr = request.getParameter("amount");
         String content = request.getParameter("message");
         double amount;
-
+        
+        if (senderAccount.equals(recipientAccount)){
+             request.setAttribute("errorMessage", "Tài khoản người nhận không hợp lệ.");
+            request.getRequestDispatcher("views/transfer.jsp").forward(request, response);
+            return;
+        }
         try {
             amount = Double.parseDouble(amountStr);
         } catch (NumberFormatException e) {
@@ -40,6 +45,7 @@ public class TransferServlet extends HttpServlet {
             request.getRequestDispatcher("views/transfer.jsp").forward(request, response);
             return;
         }
+        
        
         try (Connection conn = DBConnection.getConnection()) {
                 String recipientCheckQuery = "SELECT accountNumber, fullName FROM customers WHERE accountNumber = ?";
@@ -57,7 +63,7 @@ public class TransferServlet extends HttpServlet {
                 }
 
                 // Lấy hạn mức và tổng số tiền chuyển trong ngày
-                String limitCheckQuery = "SELECT `limit`, `total`, balance FROM customers WHERE accountNumber = ?";
+                String limitCheckQuery = "SELECT `limit`, `total`, lastDate, balance FROM customers WHERE accountNumber = ?";
                 PreparedStatement limitCheckStmt = conn.prepareStatement(limitCheckQuery);
                 limitCheckStmt.setString(1, senderAccount);
                 ResultSet limitCheckRs = limitCheckStmt.executeQuery();
@@ -65,7 +71,19 @@ public class TransferServlet extends HttpServlet {
                 if (limitCheckRs.next()) {
                     int limit = limitCheckRs.getInt("limit");
                     double total = limitCheckRs.getDouble("total");
+                    String lastDate = limitCheckRs.getString("lastDate");
                     double balance = limitCheckRs.getDouble("balance");
+                    
+                    String currentDate = java.time.LocalDate.now().toString();
+                    if (lastDate == null || !currentDate.equals(lastDate)) {
+                        total = 0; // Reset số tiền
+                        String updateQuery = "UPDATE customers SET total = 0, lastDate = ? WHERE accountNumber = ?";
+                        try (PreparedStatement updateStmt = conn.prepareStatement(updateQuery)) {
+                            updateStmt.setString(1, currentDate);
+                            updateStmt.setString(2, senderAccount);
+                            updateStmt.executeUpdate();
+                        }
+                    }
 
                     // Kiểm tra hạn mức
                     if (total + amount > limit) {
